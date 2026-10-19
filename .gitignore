@@ -1,0 +1,10 @@
+# Local user config — NEVER commit (may hold apiKeys)
+config.json
+config.local.json
+
+# Local issue log — machine-specific learning, do not ship
+issues.md
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

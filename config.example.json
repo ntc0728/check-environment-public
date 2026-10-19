@@ -1,0 +1,10 @@
+{
+  "$comment": "Optional local config — written by setup.mjs --grant (user-approved overrides only). Copy to ~/.config/check-environment/config.json and edit manually if desired. All keys optional. NEVER commit the real config (it may hold apiKeys).",
+  "shell": null,
+  "packageManager": null,
+  "nodePath": null,
+  "npmRegistry": null,
+  "executionPolicyBypass": true,
+  "preferLocalBin": true,
+  "apiKeys": {}
+}

@@ -1,9 +1,10 @@
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const HOOK = path.resolve(
-  "skills/check-environment/hooks/encoding-guard.mjs"
-);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const HOOK = path.resolve(__dirname, "../skills/check-environment/hooks/encoding-guard.mjs");
 
 function run(format, payload, shell = "") {
   const r = spawnSync(process.execPath, [HOOK, `--format=${format}`], {
@@ -21,25 +22,24 @@ const pre = {
 };
 
 let r = run("claude", pre);
-console.log("claude pre code:", r.code);
-const parsed = JSON.parse(r.out);
-const cmd = parsed.hookSpecificOutput.updatedInput.command;
-console.log("  injected guard:", cmd.startsWith("chcp 65001"));
-console.log("  decision:", parsed.hookSpecificOutput.permissionDecision);
+assert.equal(r.code, 0, "claude pre must exit 0");
+let parsed = JSON.parse(r.out);
+assert.ok(parsed.hookSpecificOutput.updatedInput.command.startsWith("chcp 65001"));
+assert.equal(parsed.hookSpecificOutput.permissionDecision, "allow");
 
 r = run("cursor", pre);
-console.log("cursor pre:", JSON.parse(r.out).updated_input.command.startsWith("chcp 65001"));
+assert.ok(JSON.parse(r.out).updated_input.command.startsWith("chcp 65001"));
 
 r = run("codex", pre);
-console.log("codex pre:", JSON.parse(r.out).updatedInput.command.startsWith("chcp 65001"));
+assert.ok(JSON.parse(r.out).updatedInput.command.startsWith("chcp 65001"));
 
-// already-guarded command must pass through untouched
+// already-guarded command must pass through untouched (no rewrite output)
 r = run("claude", {
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
   tool_input: { command: "chcp 65001 >$null 2>&1; Get-ChildItem" },
 });
-console.log("idempotent (no rewrite):", r.out === "");
+assert.equal(r.out, "", "already-guarded command must NOT be rewritten");
 
 // posix command must pass through untouched
 r = run(
@@ -51,13 +51,15 @@ r = run(
   },
   "/bin/bash"
 );
-console.log("posix untouched:", r.out === "");
+assert.equal(r.out, "", "POSIX command must NOT be guarded");
 
-// post event: clean output -> no loop error
+// post event: clean output -> no loop error, exit 0
 r = run("claude", {
   hook_event_name: "PostToolUse",
   tool_name: "Bash",
   tool_input: { command: "echo hi" },
   tool_response: "hi",
 });
-console.log("post clean code:", r.code);
+assert.equal(r.code, 0, "clean post must exit 0");
+
+console.log("hook-adapter: all assertions passed");

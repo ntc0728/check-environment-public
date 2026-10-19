@@ -119,7 +119,10 @@ export const CATEGORIES = {
 
 export function classify(command) {
   const cmd = String(command || "");
-  if (/\b(Get-Content|type)\b/i.test(cmd)) return "read_via_ps";
+  // `type` as a bare command (e.g. `type file.txt`) — not `npm run type-check`
+  // or `git log --type=...`.
+  if (/\bGet-Content\b/i.test(cmd)) return "read_via_ps";
+  if (/(?:^|[;&|]|\bwhere\s)\s*type\s/i.test(cmd)) return "read_via_ps";
   if (/cat\b/.test(cmd) && !/git\s+cat-file/i.test(cmd)) return "read_via_ps";
   if (/[^\x00-\x7F]/.test(cmd)) return "inline_nonascii";
   if (/(?:^|[\s;(])&&(?:\s|$)|(?:^|[\s;(])\|\|(?:\s|$)/.test(cmd))
@@ -347,7 +350,7 @@ export function createLoopDetector({ persistPath = null } = {}) {
     }
     if (failStreak.length >= LOOP_METHOD_SWITCH_FAIL) {
       const unique = new Set(failStreak.map((f) => String(f.cmd).slice(0, 60)));
-      if (unique.size >= 2) {
+      if (unique.size >= LOOP_METHOD_SWITCH_FAIL) {
         return {
           reason: "方法切换无进展（自我否定循环）",
           detail: `连续 ${failStreak.length} 次失败，尝试了 ${unique.size} 种不同方法`,
@@ -380,17 +383,22 @@ export function createLoopDetector({ persistPath = null } = {}) {
         failStreak = [];
       }
 
-      // Rule 4 needs three similar runs: two identical E2E re-runs are a
-      // legitimate debugging pattern, three are a loop.
+      // Rule 4 needs three CONSECUTIVE similar runs (2 adjacent pairs both
+      // >= threshold). Two identical E2E re-runs are a legit debugging
+      // pattern; only three in a row are a loop.
       if (!hit && callLog.length >= 3) {
         const prev = callLog[callLog.length - 2];
+        const prev2 = callLog[callLog.length - 3];
         if (
           prev &&
+          prev2 &&
           typeof prev.output === "string" &&
+          typeof prev2.output === "string" &&
+          jaccard(prev2.output, prev.output) >= LOOP_SIMILARITY_THRESHOLD &&
           jaccard(prev.output, output) >= LOOP_SIMILARITY_THRESHOLD
         ) {
           hit = {
-            reason: "输出与上次高度相似",
+            reason: "输出连续三次高度相似",
             detail: `Jaccard=${jaccard(prev.output, output).toFixed(2)}`,
           };
         }

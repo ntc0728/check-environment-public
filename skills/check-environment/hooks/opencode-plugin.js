@@ -52,7 +52,12 @@ export const EncodingGuardPlugin = async () => {
 
     "tool.execute.after": async (input, output) => {
       if (input.tool !== "bash") return;
-      const cmd = String((input.args && input.args.command) || "");
+      // opencode may hand back the rewritten args (GUARD-prefixed); strip it
+      // so the loop detector sees the same string checkBefore saw.
+      const cmd = String((input.args && input.args.command) || "").replace(
+        /^chcp 65001 [^;]*;\s*/,
+        ""
+      );
       const text =
         output && typeof output.output === "string" ? output.output : null;
 

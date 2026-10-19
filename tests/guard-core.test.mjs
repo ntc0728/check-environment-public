@@ -12,6 +12,7 @@ import {
 assert.equal(shouldInjectGuard("Get-ChildItem", "C:\\pwsh\\pwsh.exe"), true);
 assert.equal(shouldInjectGuard("node script.js", "/bin/bash"), false);
 assert.equal(shouldInjectGuard("$OutputEncoding=[Text.Encoding]::UTF8; ls", "pwsh"), false);
+assert.equal(shouldInjectGuard("chcp 65001 >$null 2>&1; ls", "pwsh"), false);
 assert.equal(shouldInjectGuard("pwsh -File build.ps1", "pwsh"), false);
 assert.equal(shouldInjectGuard("", "pwsh"), false);
 assert.ok(GUARD.includes("chcp 65001"), "guard must flip the code page");
@@ -65,6 +66,30 @@ for (const t of mustNotBeErrors) {
   assert.equal(hit, null, "two identical E2E runs are a legit debug pattern");
 }
 
+// --- loop: similarity needs 3 consecutive (not just last-2 pair) ---
+{
+  const d = createLoopDetector();
+  d.checkAfter("a", "unrelated output A");
+  d.checkAfter("b", "Running 24 tests...\n24 passed\n");
+  const hit = d.checkAfter("c", "Running 24 tests...\n24 passed\n");
+  assert.equal(
+    hit,
+    null,
+    "unrelated output A + 2 E2E re-runs must NOT trip (only 1 adjacent pair similar)"
+  );
+}
+
+// --- loop: 3 consecutive similar outputs trip ---
+{
+  const d = createLoopDetector();
+  const out = "Running 24 tests...\n24 passed\n";
+  d.checkAfter("a", out);
+  d.checkAfter("b", out);
+  const hit = d.checkAfter("c", out);
+  assert.ok(hit, "three consecutive identical outputs must trip similarity");
+  assert.match(hit.reason, /连续三次高度相似/);
+}
+
 // --- loop: consecutive failures ---
 {
   const d = createLoopDetector();
@@ -87,8 +112,30 @@ for (const t of mustNotBeErrors) {
   assert.equal(hit, null, "a clean run must reset the fail streak");
 }
 
-// --- classification ---
+// --- loop: 3 distinct failing methods trip a loop rule ---
+// NOTE: fail-streak (consecutive failures) fires on the 3rd checkAfter before
+// method-switch (a checkBefore rule) can. Both are valid loop signals; assert
+// a hit occurs rather than a specific reason.
+{
+  const d = createLoopDetector();
+  let hit = null;
+  const methods = ["method-a", "method-b", "method-c"];
+  for (let i = 0; i < 3; i++) {
+    hit = d.checkAfter(methods[i], "ERROR: boom");
+    if (hit) break;
+  }
+  assert.ok(hit, "3 distinct failing methods must trip a loop rule");
+  assert.ok(
+    /连续失败|方法切换/.test(hit.reason),
+    `unexpected reason: ${hit.reason}`
+  );
+}
+
+// --- classify ---
 assert.equal(classify("Get-Content x.txt"), "read_via_ps");
+assert.equal(classify("type x.txt"), "read_via_ps");
+assert.equal(classify("npm run type-check"), "external_or_capture");
+assert.equal(classify("git log --type=feature"), "external_or_capture");
 assert.equal(classify("git cat-file -p HEAD"), "external_or_capture");
 assert.equal(classify("cmd1 && cmd2"), "bash_chain");
 

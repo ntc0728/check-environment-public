@@ -86,7 +86,7 @@ node /path/to/hooks/encoding-guard.mjs --format=claude   # 或 cursor / codex
 工作方式：
 
 - **前置**（PreToolUse）：命令是 PowerShell 且**未带守卫**时，通过平台 `updatedInput`/`updated_input` 注入 UTF-8 守卫并放行；已带守卫（`chcp 65001` 或 `$OutputEncoding=`）直接透传；node/git-bash/posix 命令透传。**绝不破坏正常命令**（fail-open）。
-- **后置**（PostToolUse）：扫描输出含 `\uFFFD` → 归类去重 → 追加到问题日志 → 该类别首次出现时把规则回写标准文件。
+- **后置**（PostToolUse）：扫描输出含 `\uFFFD` → 归类去重 → 追加到问题日志。opencode 端还会把新规则**回写标准文件**（`~/.config/opencode/check-environment.md`）；Claude/Cursor/Codex 端只写问题日志（`~/.config/check-environment/issues.md`），不自动回写标准（它们没有可定位的标准文件路径）。
 - **循环检测**：同命令重复 ≥8 次 / 5min、连续失败 ≥3 次、输出相似度 Jaccard ≥0.8 连续 3 次、3 种方法切换无进展 → 中断并报告。测试报告里的 `PASS: FAIL (expected)`、`Some tests FAILED` 等文本不会被误判为失败。
 - 零依赖、纯 Node ESM、永不阻塞（正常路径 exit 0）。
 

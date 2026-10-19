@@ -186,18 +186,24 @@ function installCursor(cfg, { dryRun, uninstall }) {
 
   const apply = (event, matcher) => {
     const list = (cfg.hooks[event] = cfg.hooks[event] || []);
-    const idx = list.findIndex((h) => h && h.matcher === matcher);
+    // Find OUR entry specifically (not just any entry at this matcher), so a
+    // pre-existing user hook at the same matcher does not make us re-append
+    // on every run.
+    const ourIdx = list.findIndex(
+      (h) => h && h.matcher === matcher && isOurs(h)
+    );
+    const anyIdx = list.findIndex((h) => h && h.matcher === matcher);
 
     if (uninstall) {
-      if (idx >= 0 && isOurs(list[idx])) {
-        list.splice(idx, 1);
+      if (ourIdx >= 0) {
+        list.splice(ourIdx, 1);
         changed.push(`remove:${event}:${matcher}`);
       }
       return;
     }
-    if (idx >= 0 && isOurs(list[idx])) {
-      if (isCurrent(list[idx], "cursor")) return;
-      if (!dryRun) list[idx].command = hookCommand("cursor");
+    if (ourIdx >= 0) {
+      if (isCurrent(list[ourIdx], "cursor")) return;
+      if (!dryRun) list[ourIdx].command = hookCommand("cursor");
       changed.push(`update:${event}:${matcher}`);
       return;
     }
@@ -205,12 +211,11 @@ function installCursor(cfg, { dryRun, uninstall }) {
       changed.push(`add:${event}:${matcher}`);
       return;
     }
-    if (idx >= 0) {
-      list[idx].command = hookCommand("cursor");
-    } else {
-      list.push({ command: hookCommand("cursor"), matcher });
-    }
+    // No our-entry yet. If a non-ours entry already occupies this matcher,
+    // APPEND a new entry rather than silently overwriting the user's hook.
+    list.push({ command: hookCommand("cursor"), matcher });
     changed.push(`add:${event}:${matcher}`);
+    void anyIdx;
   };
 
   apply("preToolUse", "Shell");
@@ -369,14 +374,23 @@ function main() {
     if (name === "opencode") {
       changed = installOpencode(opts);
     } else {
-      const cfg = readJson(a.cfgFile) || {};
+      // If the config file exists but is unparseable, DO NOT clobber it with
+      // a fresh {} — that would silently wipe the user's other hooks.
+      const exists = fs.existsSync(a.cfgFile);
+      const cfg = readJson(a.cfgFile);
+      if (exists && !cfg) {
+        summary.push(
+          `${a.name}: config exists but could not be parsed — SKIPPED (fix manually or delete the file)`
+        );
+        continue;
+      }
       changed =
         name === "cursor"
-          ? installCursor(cfg, opts)
+          ? installCursor(cfg || {}, opts)
           : name === "codex"
-            ? installCodex(cfg, a.toml, opts)
-            : installClaude(cfg, opts);
-      if (!dryRun && changed.length) writeJson(a.cfgFile, cfg);
+            ? installCodex(cfg || {}, a.toml, opts)
+            : installClaude(cfg || {}, opts);
+      if (!dryRun && changed.length && cfg) writeJson(a.cfgFile, cfg);
     }
     const verb = uninstall ? "removed" : "changed";
     summary.push(
